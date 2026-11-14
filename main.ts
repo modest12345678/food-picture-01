@@ -1,38 +1,39 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
-// food-picture-01 Round 3 entry: Artisan Tonkotsu Ramen — Glossy Noodle Pull & Molten Ajitama Egg
-// ponytail: deterministic static asset deployment with byte-level validation and tie-break optimization
-const MAX_BYTES = 1_048_576;
-const srcUrl = new URL('./entry.png', import.meta.url);
-const imageBytes = readFileSync(srcUrl);
+// Hakata Tonkotsu Ramen Round 3 Submission Handler
+// ponytail: deterministic static deployment, zero external dependencies, strict boundary checks
+const JPEG_LIMIT_BYTES = 1048576;
+const CANDIDATE_ASSET_NAME = 'entry.png';
 
-if (imageBytes.byteLength === 0 || imageBytes.byteLength > MAX_BYTES) {
-  throw new Error(`Invalid image byte length: ${imageBytes.byteLength}`);
+function checkJpegPayload(buffer: Buffer): void {
+  const totalLength = buffer.length;
+  if (totalLength === 0 || totalLength > JPEG_LIMIT_BYTES) {
+    throw new Error(`Invalid payload length: ${totalLength}`);
+  }
+  const validSoiMarker = buffer[0] === 0xff && buffer[1] === 0xd8;
+  const validEoiMarker = buffer[totalLength - 2] === 0xff && buffer[totalLength - 1] === 0xd9;
+  if (!validSoiMarker || !validEoiMarker) {
+    throw new Error('JPEG SOI/EOI markers not found in payload');
+  }
 }
 
-if (
-  imageBytes[0] !== 0xff ||
-  imageBytes[1] !== 0xd8 ||
-  imageBytes[imageBytes.byteLength - 2] !== 0xff ||
-  imageBytes[imageBytes.byteLength - 1] !== 0xd9
-) {
-  throw new Error('Image buffer is missing valid JPEG SOI/EOI markers');
+function publishFoodEntry(): void {
+  const assetPath = path.resolve(import.meta.dirname, CANDIDATE_ASSET_NAME);
+  const payloadData = fs.readFileSync(assetPath);
+  checkJpegPayload(payloadData);
+
+  const destinationFolder = process.env.MAKEFUN_OUTPUT_DIR || '/output';
+  fs.mkdirSync(destinationFolder, { recursive: true });
+
+  const targetPath = path.join(destinationFolder, CANDIDATE_ASSET_NAME);
+  fs.writeFileSync(targetPath, payloadData);
+
+  const readBack = fs.readFileSync(targetPath);
+  checkJpegPayload(readBack);
+  if (readBack.length !== payloadData.length || readBack.byteLength === 0) {
+    throw new Error('Integrity verification failed after writing');
+  }
 }
 
-const outDir = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
-mkdirSync(outDir, { recursive: true });
-
-const outPath = join(outDir, 'entry.png');
-writeFileSync(outPath, imageBytes);
-
-const writtenBytes = readFileSync(outPath);
-if (
-  writtenBytes.byteLength !== imageBytes.byteLength ||
-  writtenBytes[0] !== 0xff ||
-  writtenBytes[1] !== 0xd8 ||
-  writtenBytes[writtenBytes.byteLength - 2] !== 0xff ||
-  writtenBytes[writtenBytes.byteLength - 1] !== 0xd9
-) {
-  throw new Error('Written output failed post-write integrity check');
-}
+publishFoodEntry();
